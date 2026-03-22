@@ -398,34 +398,16 @@ export default function App() {
         </h2>
 
         {/* 탭 선택 */}
-        <div style={{display: 'flex', gap: '8px', marginBottom: '24px', borderBottom: '2px solid var(--card-border)'}}>
+        <div className="tab-container">
           <button
             onClick={() => setInputMode('excel')}
-            style={{
-              padding: '12px 24px',
-              background: inputMode === 'excel' ? 'var(--primary-color)' : 'transparent',
-              color: inputMode === 'excel' ? 'white' : 'var(--text-secondary)',
-              border: 'none',
-              borderBottom: inputMode === 'excel' ? '3px solid var(--primary-color)' : '3px solid transparent',
-              cursor: 'pointer',
-              fontWeight: inputMode === 'excel' ? 'bold' : 'normal',
-              transition: 'all 0.3s ease'
-            }}
+            className={`tab-button ${inputMode === 'excel' ? 'active' : ''}`}
           >
             📊 엑셀 파일 업로드
           </button>
           <button
             onClick={() => setInputMode('manual')}
-            style={{
-              padding: '12px 24px',
-              background: inputMode === 'manual' ? 'var(--primary-color)' : 'transparent',
-              color: inputMode === 'manual' ? 'white' : 'var(--text-secondary)',
-              border: 'none',
-              borderBottom: inputMode === 'manual' ? '3px solid var(--primary-color)' : '3px solid transparent',
-              cursor: 'pointer',
-              fontWeight: inputMode === 'manual' ? 'bold' : 'normal',
-              transition: 'all 0.3s ease'
-            }}
+            className={`tab-button ${inputMode === 'manual' ? 'active' : ''}`}
           >
             ✍️ 수동 입력
           </button>
@@ -540,22 +522,7 @@ export default function App() {
             <div style={{display: 'flex', gap: '12px', marginBottom: '24px'}}>
               <button
                 onClick={() => setManualInputType('annual')}
-                style={{
-                  flex: 1,
-                  padding: '16px',
-                  background: manualInputType === 'annual' ? 'linear-gradient(135deg, var(--primary-color), var(--accent-color))' : 'rgba(30, 41, 59, 0.5)',
-                  color: 'white',
-                  border: manualInputType === 'annual' ? '2px solid var(--primary-color)' : '2px solid var(--card-border)',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  fontWeight: manualInputType === 'annual' ? 'bold' : 'normal',
-                  fontSize: '1rem',
-                  transition: 'all 0.3s ease',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: '8px'
-                }}
+                className={`input-mode-button ${manualInputType === 'annual' ? 'active' : ''}`}
               >
                 <span style={{fontSize: '1.5rem'}}>⚡</span>
                 <span>연간 총액 입력 (빠른 입력)</span>
@@ -563,22 +530,7 @@ export default function App() {
               </button>
               <button
                 onClick={() => setManualInputType('monthly')}
-                style={{
-                  flex: 1,
-                  padding: '16px',
-                  background: manualInputType === 'monthly' ? 'linear-gradient(135deg, var(--primary-color), var(--accent-color))' : 'rgba(30, 41, 59, 0.5)',
-                  color: 'white',
-                  border: manualInputType === 'monthly' ? '2px solid var(--primary-color)' : '2px solid var(--card-border)',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  fontWeight: manualInputType === 'monthly' ? 'bold' : 'normal',
-                  fontSize: '1rem',
-                  transition: 'all 0.3s ease',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: '8px'
-                }}
+                className={`input-mode-button ${manualInputType === 'monthly' ? 'active' : ''}`}
               >
                 <span style={{fontSize: '1.5rem'}}>📅</span>
                 <span>월별 개별 입력 (상세 입력)</span>
@@ -642,7 +594,7 @@ export default function App() {
                 </div>
 
                 <div style={{maxHeight: '400px', overflowY: 'auto', marginBottom: '16px'}}>
-                  <div style={{display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px'}}>
+                  <div className="monthly-input-grid">
                     {manualData.map((data, index) => (
                       <div key={index} style={{padding: '16px', background: 'rgba(30, 41, 59, 0.5)', borderRadius: '8px', border: '1px solid var(--card-border)'}}>
                         <div style={{fontWeight: 'bold', marginBottom: '12px', color: 'var(--primary-color)'}}>{data.month}월</div>

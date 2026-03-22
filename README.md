@@ -47,3 +47,52 @@
 - `src/App.jsx`: 메인 로직 및 레이아웃
 - `src/index.css`: 전역 스타일 및 디자인 시스템
 - `public/`: 정적 자원
+
+## 🌐 Vercel 배포 방법
+
+### 방법 1: Vercel CLI 사용
+
+1. **Vercel CLI 설치:**
+   ```bash
+   npm install -g vercel
+   ```
+
+2. **Vercel 로그인:**
+   ```bash
+   vercel login
+   ```
+
+3. **배포 실행:**
+   ```bash
+   vercel
+   ```
+   - 첫 배포 시 프로젝트 설정을 물어봅니다
+   - 모든 질문에 기본값(Enter)으로 진행하면 됩니다
+
+4. **프로덕션 배포:**
+   ```bash
+   vercel --prod
+   ```
+
+### 방법 2: Vercel 웹사이트에서 배포
+
+1. **GitHub에 코드 푸시:**
+   ```bash
+   git remote add origin <your-github-repo-url>
+   git push -u origin master
+   ```
+
+2. **Vercel 웹사이트에서 배포:**
+   - [Vercel](https://vercel.com)에 접속하여 로그인
+   - "New Project" 클릭
+   - GitHub 저장소 선택
+   - Framework Preset: **Vite** 자동 감지
+   - "Deploy" 클릭
+
+3. **배포 완료:**
+   - 몇 분 후 배포가 완료되면 URL이 생성됩니다
+   - 예: `https://your-project.vercel.app`
+
+### 환경 변수 설정 (필요시)
+
+Vercel 대시보드 → Settings → Environment Variables에서 설정

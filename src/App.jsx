@@ -34,8 +34,19 @@ export default function App() {
   );
 
   // Simulation Parameters
+  const [calculationMethod, setCalculationMethod] = useState('billing'); // 'billing' or 'theoretical'
   const [otherPowerBill, setOtherPowerBill] = useState(''); // 월 비보일러 전기요금
-  
+
+  // 이론 계산 방식용 파라미터
+  const [boilerCapacity, setBoilerCapacity] = useState(''); // 전기용량 (kW)
+  const [dailyUsageHours, setDailyUsageHours] = useState(''); // 일평균 사용시간 (시간/일)
+  const [annualOperatingDays, setAnnualOperatingDays] = useState('365'); // 년간 가동일 (일/년)
+
+  // 전기요금 계약종별 (2026년 한전 요금표 기준)
+  const [contractType, setContractType] = useState('general'); // 계약종별
+  const [customRate, setCustomRate] = useState(''); // 직접입력 요금
+  const [rateSource, setRateSource] = useState('actual'); // 'actual' (실제 데이터) or 'contract' (계약종별)
+
   // 상세 시설 투자비
   const [boilerCount, setBoilerCount] = useState(1);
   const [boilerUnitPrice, setBoilerUnitPrice] = useState('');
@@ -52,6 +63,42 @@ export default function App() {
 
   const fileInputRef = useRef(null);
   const infographicRef = useRef(null);
+
+  // 한전 전기요금 계약종별 (2026년 4월 16일 시행 기준 평균 단가)
+  const contractTypes = {
+    residential: { name: '주택용 (저압)', rate: 150, description: '일반 가정, 누진제 적용' },
+    general: { name: '일반용 (저압)', rate: 130, description: '상업시설, 사무실 등' },
+    industrial: { name: '산업용 (고압)', rate: 95, description: '공장, 제조업 등' },
+    agricultural_low: { name: '농사용 갑 (저압)', rate: 60, description: '저압 농업용' },
+    agricultural_high: { name: '농사용 을 (고압)', rate: 55, description: '고압 농업용' },
+    educational: { name: '교육용', rate: 85, description: '학교, 교육시설' },
+    custom: { name: '직접입력', rate: 0, description: '사용자 지정 단가' }
+  };
+
+  // 실제 데이터에서 평균 전기단가 계산
+  const getActualAverageRate = () => {
+    if (rawData.length === 0) return null;
+    const totalBill = rawData.reduce((sum, d) => sum + d.bill, 0);
+    const totalUsage = rawData.reduce((sum, d) => sum + d.usage, 0);
+    if (totalUsage === 0) return null;
+    return Math.round(totalBill / totalUsage * 10) / 10; // 소수점 1자리
+  };
+
+  // 선택된 계약종별의 전기단가 계산
+  const getElectricityRate = () => {
+    const actualRate = getActualAverageRate();
+
+    // Excel 데이터가 있고, 사용자가 실제 데이터 사용을 선택한 경우
+    if (actualRate !== null && rateSource === 'actual') {
+      return actualRate;
+    }
+
+    // 계약종별 단가 사용 (Excel 데이터가 없거나, 사용자가 계약종별 선택)
+    if (contractType === 'custom') {
+      return Number(customRate) || 120;
+    }
+    return contractTypes[contractType]?.rate || 120;
+  };
 
   const handleMoneyChange = (setter) => (e) => setter(e.target.value.replace(/[^0-9]/g, ''));
   const formatInput = (val) => val ? Number(val).toLocaleString() : '';
@@ -76,8 +123,8 @@ export default function App() {
       return;
     }
 
-    // Estimate usage based on average electricity rate (약 120원/kWh 기준)
-    const estimatedTotalUsage = Math.round(totalBill / 120);
+    // Estimate usage based on selected contract type rate
+    const estimatedTotalUsage = Math.round(totalBill / getElectricityRate());
 
     // Divide by 12 months
     const monthlyUsage = Math.round(estimatedTotalUsage / 12);
@@ -143,23 +190,72 @@ export default function App() {
       let headerRowIndex = -1;
       let monthIndex = -1, usageIndex = -1, billIndex = -1;
 
-      for (let i = 0; i < Math.min(20, data.length); i++) {
+      // 디버깅: 처음 5줄 출력
+      console.log('📄 엑셀 데이터 처음 5줄:');
+      for (let i = 0; i < Math.min(5, data.length); i++) {
+        console.log(`${i}번째 줄:`, data[i]);
+      }
+
+      // 헤더 검색 범위를 50줄로 확대 (상단에 제목이나 불필요한 행이 많은 경우 대응)
+      for (let i = 0; i < Math.min(50, data.length); i++) {
         const row = data[i];
         if (!row) continue;
         const rowStr = row.join(' ').toLowerCase();
+
+        // 디버깅: 각 행 검사
+        if (i < 10) {
+          console.log(`${i}번째 줄 검사:`, {
+            rowStr: rowStr.substring(0, 100),
+            has월년: rowStr.includes('월') || rowStr.includes('년'),
+            has사용전력: rowStr.includes('사용') || rowStr.includes('kwh') || rowStr.includes('전력'),
+            has요금: rowStr.includes('요금') || rowStr.includes('금액') || rowStr.includes('청구')
+          });
+        }
         if ((rowStr.includes('월') || rowStr.includes('년') || rowStr.includes('date')) &&
             (rowStr.includes('사용') || rowStr.includes('kwh') || rowStr.includes('전력')) &&
             (rowStr.includes('요금') || rowStr.includes('금액') || rowStr.includes('청구'))) {
           headerRowIndex = i;
+          console.log(`✅ 헤더 찾음! ${i}번째 줄`);
+          console.log('헤더 내용:', row);
+
           row.forEach((col, idx) => {
             if (!col) return;
             const cStr = String(col).toLowerCase().replace(/\s/g, '');
-            if (!cStr.includes('기간') && (cStr.includes('사용') || cStr.includes('kwh') || cStr.includes('전력'))) {
-              usageIndex = usageIndex === -1 ? idx : usageIndex;
-            } else if (cStr.includes('요금') || cStr.includes('금액') || cStr.includes('청구')) {
-              billIndex = billIndex === -1 ? idx : billIndex;
-            } else if (!cStr.includes('기간') && (cStr.includes('월') || cStr.includes('년') || cStr.includes('일') || cStr.includes('date'))) {
-              monthIndex = monthIndex === -1 ? idx : monthIndex;
+
+            // 사용량 컬럼 찾기: "사용전력", "전력량", "사용량" 등 (계약전력 제외)
+            if (!cStr.includes('기간') && !cStr.includes('계약') &&
+                (cStr.includes('사용') || cStr.includes('kwh') || cStr.includes('전력량'))) {
+              if (usageIndex === -1) {
+                usageIndex = idx;
+                console.log(`사용량 컬럼: ${idx} (${col})`);
+              }
+            }
+            // 요금 컬럼 찾기: 우선순위 기반 검색
+            // 1순위: 청구금액, 총요금, 요금계, 합계 등
+            // 2순위: 전기요금, 요금, 금액 등
+            else if ((cStr.includes('요금') || cStr.includes('금액')) &&
+                     !cStr.includes('청구유형') && !cStr.includes('청구타입') && !cStr.includes('type') &&
+                     !cStr.includes('기본') && !cStr.includes('전력량') && !cStr.includes('부가')) {
+              // 우선순위가 높은 키워드 체크
+              const isPriority = cStr.includes('청구') || cStr.includes('합계') ||
+                                cStr.includes('계') || cStr.includes('총') ||
+                                cStr.includes('납부') || cStr.includes('최종');
+
+              // 우선순위 컬럼이면 무조건 교체, 아니면 billIndex가 -1일 때만 설정
+              if (isPriority) {
+                billIndex = idx;
+                console.log(`⭐ 요금 컬럼 (우선순위): ${idx} (${col})`);
+              } else if (billIndex === -1) {
+                billIndex = idx;
+                console.log(`요금 컬럼: ${idx} (${col})`);
+              }
+            }
+            // 년월 컬럼 찾기
+            else if (!cStr.includes('기간') && (cStr.includes('월') || cStr.includes('년') || cStr.includes('일') || cStr.includes('date'))) {
+              if (monthIndex === -1) {
+                monthIndex = idx;
+                console.log(`년월 컬럼: ${idx} (${col})`);
+              }
             }
           });
           break;
@@ -168,22 +264,37 @@ export default function App() {
 
       // 만약 헤더를 못찾았다면, 대략 첫번째 문자열 컬럼은 날짜, 두번째, 세번째 숫자 컬럼은 사용량/요금으로 추정
       if (headerRowIndex === -1) {
+        console.warn('⚠️ 헤더를 찾지 못함! 기본값 사용 (0,1,2)');
         monthIndex = 0; usageIndex = 1; billIndex = 2;
         headerRowIndex = 0; // 그냥 1번째 줄부터 데이터라고 가정함 (숫자 파싱때 걸러짐)
       } else if (monthIndex === -1 || usageIndex === -1 || billIndex === -1) {
-        monthIndex = 0; usageIndex = 1; billIndex = 2;
+        console.warn('⚠️ 일부 컬럼을 찾지 못함! 기본값 사용');
+        console.log({ monthIndex, usageIndex, billIndex });
+        monthIndex = monthIndex === -1 ? 0 : monthIndex;
+        usageIndex = usageIndex === -1 ? 1 : usageIndex;
+        billIndex = billIndex === -1 ? 2 : billIndex;
       }
+
+      console.log('📊 최종 컬럼 인덱스:', { headerRowIndex, monthIndex, usageIndex, billIndex });
 
       for (let i = headerRowIndex + 1; i < data.length; i++) {
         const row = data[i];
         if (!row || row.length < 3) continue;
-        
+
         // 데이터 파싱
         let rawDate = row[monthIndex];
         let usage = parseFloat(String(row[usageIndex]).replace(/,/g, ''));
         let bill = parseFloat(String(row[billIndex]).replace(/,/g, ''));
 
-        if (isNaN(usage) || isNaN(bill)) continue;
+        // 처음 3개 데이터만 디버깅 출력
+        if (i < headerRowIndex + 4) {
+          console.log(`${i}번째 데이터 행:`, { rawDate, usage, bill, row: row.slice(0, 15) });
+        }
+
+        if (isNaN(usage) || isNaN(bill)) {
+          if (i < headerRowIndex + 4) console.log(`  ⚠️ 사용량 또는 요금이 숫자가 아님`);
+          continue;
+        }
 
         let year = null;
         let month = null;
@@ -192,17 +303,23 @@ export default function App() {
           const date = new Date((rawDate - (25567 + 2)) * 86400 * 1000); // adjust for excel leap year bug & origin
           year = date.getFullYear();
           month = date.getMonth() + 1;
+          console.log(`${i}번째 행: 날짜(숫자) ${rawDate} → ${year}년 ${month}월`);
         } else if (rawDate) {
           const dStr = String(rawDate).trim();
+          console.log(`${i}번째 행: 날짜(문자) "${dStr}"`);
           let match = dStr.match(/^(\d{4})[-\.년\s]*(\d{1,2})/);
           if (match) {
             year = parseInt(match[1], 10);
             month = parseInt(match[2], 10);
+            console.log(`  → 매칭 성공: ${year}년 ${month}월`);
           } else {
             match = dStr.match(/^(\d{2})[-\.년\s]*(\d{1,2})/);
             if (match) {
               year = 2000 + parseInt(match[1], 10);
               month = parseInt(match[2], 10);
+              console.log(`  → 매칭 성공(2자리): ${year}년 ${month}월`);
+            } else {
+              console.log(`  → 매칭 실패!`);
             }
           }
         }
@@ -212,9 +329,23 @@ export default function App() {
         }
       }
 
+      console.log(`\n📈 총 ${parsed.length}개월 데이터 파싱됨`);
+
       // 만약 정규 파싱 실패시, 모의 데이터 제공 기능 필요?
       if (parsed.length === 0) {
-        alert("데이터를 헤더(년월/사용량/청구금액)에 맞게 인식하지 못했습니다. 샘플 데이터를 띄웁니다.");
+        alert(
+          "❌ 데이터 인식 실패\n\n" +
+          "엑셀 파일에서 필수 컬럼을 찾지 못했습니다.\n\n" +
+          "📋 필수 조건:\n" +
+          "• 년/월 정보 컬럼 (예: '년월', '날짜')\n" +
+          "• 사용량 컬럼 (예: '사용량', '전력량', 'kWh')\n" +
+          "• 요금 컬럼 (예: '요금', '금액', '청구액')\n\n" +
+          "💡 해결 방법:\n" +
+          "1. 엑셀 파일 상단의 불필요한 행 삭제\n" +
+          "2. 헤더 행을 최대한 위쪽(1~10번째 줄)에 배치\n" +
+          "3. 컬럼명에 위 키워드 포함\n\n" +
+          "샘플 데이터로 화면을 표시합니다."
+        );
         const currentYear = new Date().getFullYear();
         parsed = Array.from({length: 12}, (_, i) => ({
           year: currentYear,
@@ -232,6 +363,13 @@ export default function App() {
         setStartYear(uniqueYears[0]);
         setStartMonth(1);
       }
+
+      // 파싱 성공 메시지 (샘플 데이터가 아닌 경우에만)
+      if (parsed.length > 0 && headerRowIndex !== -1) {
+        console.log(`✅ 데이터 파싱 성공: ${parsed.length}개월 데이터 로드됨`);
+        console.log(`📊 헤더 위치: ${headerRowIndex + 1}번째 줄`);
+        console.log(`📅 년도: ${uniqueYears.join(', ')}`);
+      }
     };
     reader.readAsBinaryString(file);
   };
@@ -248,11 +386,37 @@ export default function App() {
       const found = rawData.find(d => d.year === currentY && d.month === currentM);
       const usage = found ? found.usage : 0;
       const totalBill = found ? found.bill : 0;
-      
+
       const safeOtherPowerBill = Number(otherPowerBill) || 0;
       const safeSavingsRate = Number(savingsRate) || 0;
 
-      const boilerBill = Math.max(0, totalBill - safeOtherPowerBill);
+      let boilerBill = 0;
+
+      if (calculationMethod === 'billing') {
+        // 방식 1: 청구서 기반 (기저부하 차감)
+        boilerBill = Math.max(0, totalBill - safeOtherPowerBill);
+      } else if (calculationMethod === 'theoretical') {
+        // 방식 2: 이론 계산 (용량 × 시간 × 일수)
+        const capacity = Number(boilerCapacity) || 0;
+        const hoursPerDay = Number(dailyUsageHours) || 0;
+        const daysInYear = Number(annualOperatingDays) || 365;
+        const daysPerMonth = daysInYear / 12; // 평균 월 가동일
+
+        // 보일러 사용량 (kWh) = 용량(kW) × 시간/일 × 일수
+        let boilerUsage = capacity * hoursPerDay * daysPerMonth;
+
+        // ⚠️ 안전장치: 이론 계산 보일러 사용량이 실제 전체 사용량을 초과하지 않도록 제한
+        if (usage > 0 && boilerUsage > usage) {
+          boilerUsage = usage * 0.95; // 최대 전체 사용량의 95%까지만 허용
+        }
+
+        // 평균 전기단가 계산 (원/kWh)
+        const averageRate = usage > 0 ? totalBill / usage : getElectricityRate(); // 계약종별 기본값
+
+        // 보일러 요금 = 보일러 사용량 × 전기단가
+        boilerBill = boilerUsage * averageRate;
+      }
+
       const savings = boilerBill * (safeSavingsRate / 100);
       const newBoilerBill = boilerBill - savings;
 
@@ -275,7 +439,7 @@ export default function App() {
       }
     }
     return res;
-  }, [rawData, startYear, startMonth, otherPowerBill, savingsRate]);
+  }, [rawData, startYear, startMonth, otherPowerBill, savingsRate, calculationMethod, boilerCapacity, dailyUsageHours, annualOperatingDays, contractType, customRate, rateSource]);
 
   const facilityInvestment = 
     (Number(boilerCount)||0) * (Number(boilerUnitPrice)||0) + 
@@ -464,21 +628,134 @@ export default function App() {
                 </div>
               </div>
               {monthlyData.length > 0 && (
-                <div className="form-group">
-                  <label>월별 비보일러 전기요금 (기본 요금 등)</label>
-                  <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
-                    <input
-                      type="text"
-                      className="form-control"
-                      value={formatInput(otherPowerBill)}
-                      onChange={handleMoneyChange(setOtherPowerBill)}
-                    />
-                    <span>원/월</span>
+                <>
+                  <h3 style={{marginTop: '32px', marginBottom: '16px', fontSize: '1rem', color: 'var(--text-primary)', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '24px'}}>
+                    보일러 사용량 계산 방식 선택
+                  </h3>
+
+                  {/* 계산 방식 선택 */}
+                  <div style={{display: 'flex', gap: '12px', marginBottom: '24px'}}>
+                    <button
+                      onClick={() => setCalculationMethod('billing')}
+                      className={`input-mode-button ${calculationMethod === 'billing' ? 'active' : ''}`}
+                    >
+                      <span style={{fontSize: '1.5rem'}}>📋</span>
+                      <span>청구서 기반 계산</span>
+                      <span style={{fontSize: '0.8rem', opacity: 0.8}}>전체 요금 - 기저부하</span>
+                    </button>
+                    <button
+                      onClick={() => setCalculationMethod('theoretical')}
+                      className={`input-mode-button ${calculationMethod === 'theoretical' ? 'active' : ''}`}
+                    >
+                      <span style={{fontSize: '1.5rem'}}>🔬</span>
+                      <span>이론 계산</span>
+                      <span style={{fontSize: '0.8rem', opacity: 0.8}}>용량 × 시간 × 일수</span>
+                    </button>
                   </div>
-                  <div style={{fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '8px'}}>
-                    이 금액을 뺀 나머지 금액이 "순수 보일러 전기요금"으로 산정됩니다.
-                  </div>
-                </div>
+
+                  {/* 청구서 기반 계산 입력 */}
+                  {calculationMethod === 'billing' && (
+                    <div className="form-group">
+                      <label>월별 비보일러 전기요금 (기저부하)</label>
+                      <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+                        <input
+                          type="text"
+                          className="form-control"
+                          value={formatInput(otherPowerBill)}
+                          onChange={handleMoneyChange(setOtherPowerBill)}
+                          placeholder="0"
+                        />
+                        <span>원/월</span>
+                      </div>
+                      <div style={{fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '8px'}}>
+                        💡 전체 전기요금에서 이 금액을 뺀 나머지가 "순수 보일러 전기요금"으로 산정됩니다.
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 이론 계산 입력 */}
+                  {calculationMethod === 'theoretical' && (
+                    <>
+                      <div style={{padding: '16px', borderRadius: '8px', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.2)', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px'}}>
+                        <div style={{fontWeight: '600', color: 'var(--primary-color)', marginBottom: '8px'}}>
+                          🔬 이론적 계산 방식
+                        </div>
+                        <p style={{margin: 0}}>보일러 사용량(kWh) = 전기용량(kW) × 일평균 사용시간(시간/일) × 월평균 가동일(일/월)</p>
+                        <p style={{margin: '4px 0 0 0'}}>보일러 요금 = 보일러 사용량 × 평균 전기단가</p>
+                      </div>
+
+                      {/* 이론 계산값이 비정상적으로 큰 경우 경고 */}
+                      {(() => {
+                        const capacity = Number(boilerCapacity) || 0;
+                        const hoursPerDay = Number(dailyUsageHours) || 0;
+                        const daysPerMonth = (Number(annualOperatingDays) || 365) / 12;
+                        const theoreticalUsage = capacity * hoursPerDay * daysPerMonth;
+                        const avgUsage = rawData.length > 0 ? rawData.reduce((sum, d) => sum + d.usage, 0) / rawData.length : 0;
+
+                        if (theoreticalUsage > avgUsage && avgUsage > 0) {
+                          return (
+                            <div style={{padding: '16px', borderRadius: '8px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px'}}>
+                              <div style={{fontWeight: '600', color: 'rgb(239, 68, 68)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px'}}>
+                                <span style={{fontSize: '1rem'}}>⚠️</span> 입력값 검토 필요
+                              </div>
+                              <p style={{margin: 0}}>
+                                이론 계산된 보일러 사용량 ({Math.round(theoreticalUsage).toLocaleString()} kWh)이 실제 월평균 전체 사용량 ({Math.round(avgUsage).toLocaleString()} kWh)보다 {Math.round(theoreticalUsage / avgUsage * 10) / 10}배 높습니다.
+                              </p>
+                              <p style={{margin: '8px 0 0 0'}}>
+                                💡 <strong>전기용량, 일평균 사용시간, 가동일수를 다시 확인</strong>해주세요. 입력값이 너무 크면 부정확한 결과가 나올 수 있습니다.
+                              </p>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
+
+                      <div className="grid-3">
+                        <div className="form-group">
+                          <label>보일러 전기용량</label>
+                          <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                            <input
+                              type="number"
+                              className="form-control"
+                              value={boilerCapacity}
+                              onChange={e => setBoilerCapacity(e.target.value)}
+                              placeholder="0"
+                              step="0.1"
+                            />
+                            <span>kW</span>
+                          </div>
+                        </div>
+                        <div className="form-group">
+                          <label>일평균 사용시간</label>
+                          <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                            <input
+                              type="number"
+                              className="form-control"
+                              value={dailyUsageHours}
+                              onChange={e => setDailyUsageHours(e.target.value)}
+                              placeholder="0"
+                              step="0.1"
+                            />
+                            <span>시간/일</span>
+                          </div>
+                        </div>
+                        <div className="form-group">
+                          <label>년간 가동일</label>
+                          <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                            <input
+                              type="number"
+                              className="form-control"
+                              value={annualOperatingDays}
+                              onChange={e => setAnnualOperatingDays(e.target.value)}
+                              placeholder="365"
+                            />
+                            <span>일/년</span>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -567,7 +844,7 @@ export default function App() {
                         📊 <strong>월평균 요금:</strong> {annualBill ? formatMoney(Math.round(Number(annualBill) / 12)) : '0'} 원
                       </div>
                       <div style={{fontSize: '0.8rem', opacity: 0.8}}>
-                        ⚡ 사용량은 평균 전기요금 단가(120원/kWh)를 기준으로 자동 추정됩니다
+                        ⚡ 사용량은 선택한 계약종별의 평균 단가({getElectricityRate()}원/kWh)를 기준으로 자동 추정됩니다
                       </div>
                     </div>
                   </div>
@@ -636,28 +913,423 @@ export default function App() {
         )}
       </section>
 
+      {/* 전기요금 계약종별 선택 */}
+      {(rawData.length > 0 || (inputMode === 'manual' && manualInputType === 'annual' && annualBill)) && (
+        <section className="glass-panel mb-6">
+          <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '24px' }}>
+            <Zap size={24} color="var(--warning-color)" />
+            전기요금 단가 설정
+            {getActualAverageRate() === null && (
+              <span style={{fontSize: '0.85rem', fontWeight: 'normal', color: 'var(--warning-color)', marginLeft: '8px'}}>
+                (필수)
+              </span>
+            )}
+          </h2>
+
+          <div style={{padding: '16px', borderRadius: '8px', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.2)', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '24px'}}>
+            <div style={{fontWeight: '600', color: 'var(--primary-color)', marginBottom: '8px'}}>
+              💡 한국전력공사 2026년 4월 16일 시행 요금표 기준
+            </div>
+            {getActualAverageRate() !== null ? (
+              <>
+                <p style={{margin: '0 0 16px 0'}}>
+                  Excel 데이터에서 실제 평균 단가를 계산했습니다. 아래에서 사용할 전기단가를 선택하세요.
+                </p>
+
+                {/* 전기단가 선택 라디오 버튼 */}
+                <div style={{display: 'flex', flexDirection: 'column', gap: '12px'}}>
+                  <label
+                    style={{
+                      padding: '16px',
+                      borderRadius: '8px',
+                      border: rateSource === 'actual' ? '2px solid var(--primary-color)' : '2px solid rgba(255,255,255,0.1)',
+                      background: rateSource === 'actual' ? 'rgba(59, 130, 246, 0.15)' : 'rgba(30, 41, 59, 0.3)',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="rateSource"
+                      value="actual"
+                      checked={rateSource === 'actual'}
+                      onChange={(e) => setRateSource(e.target.value)}
+                      style={{width: '18px', height: '18px', cursor: 'pointer'}}
+                    />
+                    <div style={{flex: 1}}>
+                      <div style={{fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px'}}>
+                        📊 실제 데이터 사용 (추천)
+                      </div>
+                      <div style={{fontSize: '0.85rem', color: 'var(--text-secondary)'}}>
+                        업로드된 Excel 파일의 평균 단가: <strong style={{color: 'var(--primary-color)'}}>{getActualAverageRate()}원/kWh</strong>
+                      </div>
+                    </div>
+                  </label>
+
+                  <label
+                    style={{
+                      padding: '16px',
+                      borderRadius: '8px',
+                      border: rateSource === 'contract' ? '2px solid var(--primary-color)' : '2px solid rgba(255,255,255,0.1)',
+                      background: rateSource === 'contract' ? 'rgba(59, 130, 246, 0.15)' : 'rgba(30, 41, 59, 0.3)',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="rateSource"
+                      value="contract"
+                      checked={rateSource === 'contract'}
+                      onChange={(e) => setRateSource(e.target.value)}
+                      style={{width: '18px', height: '18px', cursor: 'pointer'}}
+                    />
+                    <div style={{flex: 1}}>
+                      <div style={{fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px'}}>
+                        📋 계약종별 단가 사용
+                      </div>
+                      <div style={{fontSize: '0.85rem', color: 'var(--text-secondary)'}}>
+                        선택한 계약종별의 평균 단가: <strong style={{color: 'var(--warning-color)'}}>
+                          {contractType === 'custom'
+                            ? `${Number(customRate) || 120}원/kWh (직접입력)`
+                            : `${contractTypes[contractType]?.rate}원/kWh (${contractTypes[contractType]?.name})`
+                          }
+                        </strong>
+                      </div>
+                    </div>
+                  </label>
+                </div>
+              </>
+            ) : (
+              <p style={{margin: 0}}>
+                계약종별을 선택하면 해당 종별의 평균 전기단가가 자동 적용됩니다. 정확한 시뮬레이션을 위해 실제 계약종별을 선택해주세요.
+              </p>
+            )}
+          </div>
+
+          <div className="grid-2" style={{gap: '16px'}}>
+            {Object.entries(contractTypes).filter(([key]) => key !== 'custom').map(([key, info]) => (
+              <label
+                key={key}
+                style={{
+                  padding: '20px',
+                  borderRadius: '12px',
+                  border: contractType === key ? '2px solid var(--primary-color)' : '2px solid var(--card-border)',
+                  background: contractType === key ? 'rgba(59, 130, 246, 0.1)' : 'rgba(30, 41, 59, 0.5)',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px'
+                }}
+                onMouseEnter={(e) => {
+                  if (contractType !== key) {
+                    e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.5)';
+                    e.currentTarget.style.background = 'rgba(30, 41, 59, 0.7)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (contractType !== key) {
+                    e.currentTarget.style.borderColor = 'var(--card-border)';
+                    e.currentTarget.style.background = 'rgba(30, 41, 59, 0.5)';
+                  }
+                }}
+              >
+                <input
+                  type="radio"
+                  name="contractType"
+                  value={key}
+                  checked={contractType === key}
+                  onChange={(e) => setContractType(e.target.value)}
+                  style={{width: '20px', height: '20px', cursor: 'pointer'}}
+                />
+                <div style={{flex: 1}}>
+                  <div style={{fontWeight: 600, fontSize: '1.05rem', marginBottom: '4px', color: 'var(--text-primary)'}}>
+                    {info.name}
+                  </div>
+                  <div style={{fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '6px'}}>
+                    {info.description}
+                  </div>
+                  <div style={{fontSize: '1.1rem', fontWeight: 700, color: 'var(--primary-color)'}}>
+                    평균 {info.rate}원/kWh
+                  </div>
+                </div>
+              </label>
+            ))}
+
+            {/* 직접입력 옵션 */}
+            <label
+              style={{
+                padding: '20px',
+                borderRadius: '12px',
+                border: contractType === 'custom' ? '2px solid var(--primary-color)' : '2px solid var(--card-border)',
+                background: contractType === 'custom' ? 'rgba(59, 130, 246, 0.1)' : 'rgba(30, 41, 59, 0.5)',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px'
+              }}
+              onMouseEnter={(e) => {
+                if (contractType !== 'custom') {
+                  e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.5)';
+                  e.currentTarget.style.background = 'rgba(30, 41, 59, 0.7)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (contractType !== 'custom') {
+                  e.currentTarget.style.borderColor = 'var(--card-border)';
+                  e.currentTarget.style.background = 'rgba(30, 41, 59, 0.5)';
+                }
+              }}
+            >
+              <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+                <input
+                  type="radio"
+                  name="contractType"
+                  value="custom"
+                  checked={contractType === 'custom'}
+                  onChange={(e) => setContractType(e.target.value)}
+                  style={{width: '20px', height: '20px', cursor: 'pointer'}}
+                />
+                <div style={{flex: 1}}>
+                  <div style={{fontWeight: 600, fontSize: '1.05rem', marginBottom: '4px', color: 'var(--text-primary)'}}>
+                    직접입력
+                  </div>
+                  <div style={{fontSize: '0.85rem', color: 'var(--text-secondary)'}}>
+                    사용자 지정 전기단가
+                  </div>
+                </div>
+              </div>
+              {contractType === 'custom' && (
+                <div style={{display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px'}}>
+                  <input
+                    type="number"
+                    className="form-control"
+                    value={customRate}
+                    onChange={(e) => setCustomRate(e.target.value)}
+                    placeholder="예: 120"
+                    step="0.1"
+                    style={{flex: 1}}
+                  />
+                  <span style={{whiteSpace: 'nowrap', fontWeight: 600}}>원/kWh</span>
+                </div>
+              )}
+            </label>
+          </div>
+
+          <div style={{marginTop: '24px', padding: '16px', borderRadius: '8px', background: 'rgba(255, 193, 7, 0.1)', border: '1px solid rgba(255, 193, 7, 0.3)'}}>
+            <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+              <div style={{fontSize: '1.5rem'}}>⚡</div>
+              <div style={{flex: 1}}>
+                <div style={{fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px'}}>
+                  현재 적용 중인 전기단가
+                </div>
+                <div style={{fontSize: '1.5rem', fontWeight: 700, color: 'var(--warning-color)'}}>
+                  {getElectricityRate()}원/kWh
+                </div>
+                <div style={{fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '4px'}}>
+                  {getActualAverageRate() !== null ? (
+                    <>
+                      {rateSource === 'actual' ? (
+                        <>
+                          📊 <strong style={{color: 'var(--primary-color)'}}>실제 데이터 사용 중</strong> (업로드된 Excel 파일의 평균 단가)
+                        </>
+                      ) : (
+                        <>
+                          📋 <strong style={{color: 'var(--warning-color)'}}>계약종별 단가 사용 중</strong> ({contractTypes[contractType]?.name || '직접입력'})
+                          {(() => {
+                            const expectedRate = contractType === 'custom'
+                              ? Number(customRate) || 120
+                              : contractTypes[contractType]?.rate || 120;
+                            const actualRate = getActualAverageRate();
+                            const deviation = Math.abs(actualRate - expectedRate) / expectedRate;
+
+                            if (deviation > 0.3) {
+                              return (
+                                <div style={{marginTop: '8px', padding: '8px', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '4px', border: '1px solid rgba(239, 68, 68, 0.2)'}}>
+                                  ⚠️ 실제 데이터의 평균 단가({actualRate}원/kWh)와 {Math.round(deviation * 100)}% 차이가 있습니다.
+                                </div>
+                              );
+                            }
+                            return null;
+                          })()}
+                        </>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {contractTypes[contractType]?.name || '직접입력'} ({contractTypes[contractType]?.description || '사용자 지정 단가'})
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* 비보일러 전기요금 입력 (수동 입력 모드일 때만 별도 섹션으로) */}
       {inputMode === 'manual' && monthlyData.length > 0 && (
         <section className="glass-panel mb-6">
-          <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+          <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '24px' }}>
             <Settings size={20} color="var(--primary-color)" />
-            추가 설정
+            보일러 사용량 계산 방식
           </h2>
-          <div className="form-group">
-            <label>월별 비보일러 전기요금 (기본 요금 등)</label>
-            <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
-              <input
-                type="text"
-                className="form-control"
-                value={formatInput(otherPowerBill)}
-                onChange={handleMoneyChange(setOtherPowerBill)}
-              />
-              <span>원/월</span>
-            </div>
-            <div style={{fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '8px'}}>
-              이 금액을 뺀 나머지 금액이 "순수 보일러 전기요금"으로 산정됩니다.
-            </div>
+
+          {/* 계산 방식 선택 */}
+          <div style={{display: 'flex', gap: '12px', marginBottom: '24px'}}>
+            <button
+              onClick={() => setCalculationMethod('billing')}
+              className={`input-mode-button ${calculationMethod === 'billing' ? 'active' : ''}`}
+            >
+              <span style={{fontSize: '1.5rem'}}>📋</span>
+              <span>청구서 기반 계산</span>
+              <span style={{fontSize: '0.8rem', opacity: 0.8}}>전체 요금 - 기저부하</span>
+            </button>
+            <button
+              onClick={() => setCalculationMethod('theoretical')}
+              className={`input-mode-button ${calculationMethod === 'theoretical' ? 'active' : ''}`}
+            >
+              <span style={{fontSize: '1.5rem'}}>🔬</span>
+              <span>이론 계산</span>
+              <span style={{fontSize: '0.8rem', opacity: 0.8}}>용량 × 시간 × 일수</span>
+            </button>
           </div>
+
+          {/* 청구서 기반 계산 입력 */}
+          {calculationMethod === 'billing' && (
+            <div className="form-group">
+              <label>월별 비보일러 전기요금 (기저부하)</label>
+              <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+                <input
+                  type="text"
+                  className="form-control"
+                  value={formatInput(otherPowerBill)}
+                  onChange={handleMoneyChange(setOtherPowerBill)}
+                  placeholder="0"
+                />
+                <span>원/월</span>
+              </div>
+              <div style={{fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '8px'}}>
+                💡 전체 전기요금에서 이 금액을 뺀 나머지가 "순수 보일러 전기요금"으로 산정됩니다.
+              </div>
+
+              {/* Excel 데이터 이상 감지 */}
+              {(() => {
+                const avgBill = rawData.length > 0 ? rawData.reduce((sum, d) => sum + d.bill, 0) / rawData.length : 0;
+                const avgUsage = rawData.length > 0 ? rawData.reduce((sum, d) => sum + d.usage, 0) / rawData.length : 0;
+                const avgRate = avgUsage > 0 ? avgBill / avgUsage : 0;
+
+                // 평균 전기단가가 명백히 비정상적인 경우에만 경고 (10원 미만 또는 500원 초과)
+                if ((avgRate < 10 && avgRate > 0) || avgRate > 500) {
+                  return (
+                    <div style={{padding: '16px', borderRadius: '8px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', fontSize: '0.85rem', marginTop: '16px'}}>
+                      <div style={{fontWeight: '600', color: 'rgb(239, 68, 68)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px'}}>
+                        <span style={{fontSize: '1rem'}}>⚠️</span> Excel 데이터 파싱 오류 가능성
+                      </div>
+                      <p style={{margin: 0, color: 'var(--text-secondary)'}}>
+                        업로드된 데이터의 평균 전기단가가 <strong>{avgRate.toFixed(2)}원/kWh</strong>로 비정상적입니다. (정상 범위: 10~500원/kWh)
+                      </p>
+                      <p style={{margin: '8px 0 0 0', color: 'var(--text-secondary)'}}>
+                        💡 Excel 파일의 <strong>"요금" 컬럼이 잘못 인식</strong>되었을 가능성이 높습니다. 브라우저 개발자 도구(F12) → Console에서 "요금 컬럼" 로그를 확인하시거나, Excel 파일의 컬럼명을 "년월", "사용량", "청구금액"으로 명확히 수정해주세요.
+                      </p>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+            </div>
+          )}
+
+          {/* 이론 계산 입력 */}
+          {calculationMethod === 'theoretical' && (
+            <>
+              <div style={{padding: '16px', borderRadius: '8px', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.2)', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px'}}>
+                <div style={{fontWeight: '600', color: 'var(--primary-color)', marginBottom: '8px'}}>
+                  🔬 이론적 계산 방식
+                </div>
+                <p style={{margin: 0}}>보일러 사용량(kWh) = 전기용량(kW) × 일평균 사용시간(시간/일) × 월평균 가동일(일/월)</p>
+                <p style={{margin: '4px 0 0 0'}}>보일러 요금 = 보일러 사용량 × 평균 전기단가</p>
+              </div>
+
+              {/* 이론 계산값이 비정상적으로 큰 경우 경고 */}
+              {(() => {
+                const capacity = Number(boilerCapacity) || 0;
+                const hoursPerDay = Number(dailyUsageHours) || 0;
+                const daysPerMonth = (Number(annualOperatingDays) || 365) / 12;
+                const theoreticalUsage = capacity * hoursPerDay * daysPerMonth;
+                const avgUsage = rawData.length > 0 ? rawData.reduce((sum, d) => sum + d.usage, 0) / rawData.length : 0;
+
+                if (theoreticalUsage > avgUsage && avgUsage > 0) {
+                  return (
+                    <div style={{padding: '16px', borderRadius: '8px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px'}}>
+                      <div style={{fontWeight: '600', color: 'rgb(239, 68, 68)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px'}}>
+                        <span style={{fontSize: '1rem'}}>⚠️</span> 입력값 검토 필요
+                      </div>
+                      <p style={{margin: 0}}>
+                        이론 계산된 보일러 사용량 ({Math.round(theoreticalUsage).toLocaleString()} kWh)이 실제 월평균 전체 사용량 ({Math.round(avgUsage).toLocaleString()} kWh)보다 {Math.round(theoreticalUsage / avgUsage * 10) / 10}배 높습니다.
+                      </p>
+                      <p style={{margin: '8px 0 0 0'}}>
+                        💡 <strong>전기용량, 일평균 사용시간, 가동일수를 다시 확인</strong>해주세요. 입력값이 너무 크면 부정확한 결과가 나올 수 있습니다.
+                      </p>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+
+              <div className="grid-3">
+                <div className="form-group">
+                  <label>보일러 전기용량</label>
+                  <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                    <input
+                      type="number"
+                      className="form-control"
+                      value={boilerCapacity}
+                      onChange={e => setBoilerCapacity(e.target.value)}
+                      placeholder="0"
+                      step="0.1"
+                    />
+                    <span>kW</span>
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label>일평균 사용시간</label>
+                  <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                    <input
+                      type="number"
+                      className="form-control"
+                      value={dailyUsageHours}
+                      onChange={e => setDailyUsageHours(e.target.value)}
+                      placeholder="0"
+                      step="0.1"
+                    />
+                    <span>시간/일</span>
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label>년간 가동일</label>
+                  <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                    <input
+                      type="number"
+                      className="form-control"
+                      value={annualOperatingDays}
+                      onChange={e => setAnnualOperatingDays(e.target.value)}
+                      placeholder="365"
+                    />
+                    <span>일/년</span>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
         </section>
       )}
 

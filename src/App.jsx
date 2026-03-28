@@ -61,6 +61,9 @@ export default function App() {
   const [installmentMonths, setInstallmentMonths] = useState(60); // 할부개월수
   const [savingsRate, setSavingsRate] = useState(30); // 예상 절감율 (%)
 
+  const [googleSheetUrl, setGoogleSheetUrl] = useState('');
+  const [isLoadingSheet, setIsLoadingSheet] = useState(false);
+
   const fileInputRef = useRef(null);
   const infographicRef = useRef(null);
 
@@ -170,39 +173,22 @@ export default function App() {
     }
   };
 
-  // Parse Excel
-  const handleFileUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    setFileName(file.name);
-
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      const bstr = evt.target.result;
-      const wb = XLSX.read(bstr, { type: 'binary' });
-      const wsname = wb.SheetNames[0];
-      const ws = wb.Sheets[wsname];
-      const data = XLSX.utils.sheet_to_json(ws, { header: 1 });
-
+  // 공통 시트 데이터 파싱 함수
+  const parseSheetData = (data, sourceName = '') => {
       let parsed = [];
-      // 간단한 파서: 숫자 데이터를 찾아 월별로 매핑 (첫번째 시도의 첫 3개 숫자/날짜성 컬럼을 사용)
-      // 혹은 헤더를 기반으로 탐색
       let headerRowIndex = -1;
       let monthIndex = -1, usageIndex = -1, billIndex = -1;
 
-      // 디버깅: 처음 5줄 출력
-      console.log('📄 엑셀 데이터 처음 5줄:');
+      console.log(`📄 [${sourceName}] 데이터 처음 5줄:`);
       for (let i = 0; i < Math.min(5, data.length); i++) {
         console.log(`${i}번째 줄:`, data[i]);
       }
 
-      // 헤더 검색 범위를 50줄로 확대 (상단에 제목이나 불필요한 행이 많은 경우 대응)
       for (let i = 0; i < Math.min(50, data.length); i++) {
         const row = data[i];
         if (!row) continue;
         const rowStr = row.join(' ').toLowerCase();
 
-        // 디버깅: 각 행 검사
         if (i < 10) {
           console.log(`${i}번째 줄 검사:`, {
             rowStr: rowStr.substring(0, 100),
@@ -222,26 +208,18 @@ export default function App() {
             if (!col) return;
             const cStr = String(col).toLowerCase().replace(/\s/g, '');
 
-            // 사용량 컬럼 찾기: "사용전력", "전력량", "사용량" 등 (계약전력 제외)
             if (!cStr.includes('기간') && !cStr.includes('계약') &&
                 (cStr.includes('사용') || cStr.includes('kwh') || cStr.includes('전력량'))) {
               if (usageIndex === -1) {
                 usageIndex = idx;
                 console.log(`사용량 컬럼: ${idx} (${col})`);
               }
-            }
-            // 요금 컬럼 찾기: 우선순위 기반 검색
-            // 1순위: 청구금액, 총요금, 요금계, 합계 등
-            // 2순위: 전기요금, 요금, 금액 등
-            else if ((cStr.includes('요금') || cStr.includes('금액')) &&
+            } else if ((cStr.includes('요금') || cStr.includes('금액')) &&
                      !cStr.includes('청구유형') && !cStr.includes('청구타입') && !cStr.includes('type') &&
                      !cStr.includes('기본') && !cStr.includes('전력량') && !cStr.includes('부가')) {
-              // 우선순위가 높은 키워드 체크
               const isPriority = cStr.includes('청구') || cStr.includes('합계') ||
                                 cStr.includes('계') || cStr.includes('총') ||
                                 cStr.includes('납부') || cStr.includes('최종');
-
-              // 우선순위 컬럼이면 무조건 교체, 아니면 billIndex가 -1일 때만 설정
               if (isPriority) {
                 billIndex = idx;
                 console.log(`⭐ 요금 컬럼 (우선순위): ${idx} (${col})`);
@@ -249,9 +227,7 @@ export default function App() {
                 billIndex = idx;
                 console.log(`요금 컬럼: ${idx} (${col})`);
               }
-            }
-            // 년월 컬럼 찾기
-            else if (!cStr.includes('기간') && (cStr.includes('월') || cStr.includes('년') || cStr.includes('일') || cStr.includes('date'))) {
+            } else if (!cStr.includes('기간') && (cStr.includes('월') || cStr.includes('년') || cStr.includes('일') || cStr.includes('date'))) {
               if (monthIndex === -1) {
                 monthIndex = idx;
                 console.log(`년월 컬럼: ${idx} (${col})`);
@@ -262,14 +238,12 @@ export default function App() {
         }
       }
 
-      // 만약 헤더를 못찾았다면, 대략 첫번째 문자열 컬럼은 날짜, 두번째, 세번째 숫자 컬럼은 사용량/요금으로 추정
       if (headerRowIndex === -1) {
         console.warn('⚠️ 헤더를 찾지 못함! 기본값 사용 (0,1,2)');
         monthIndex = 0; usageIndex = 1; billIndex = 2;
-        headerRowIndex = 0; // 그냥 1번째 줄부터 데이터라고 가정함 (숫자 파싱때 걸러짐)
+        headerRowIndex = 0;
       } else if (monthIndex === -1 || usageIndex === -1 || billIndex === -1) {
         console.warn('⚠️ 일부 컬럼을 찾지 못함! 기본값 사용');
-        console.log({ monthIndex, usageIndex, billIndex });
         monthIndex = monthIndex === -1 ? 0 : monthIndex;
         usageIndex = usageIndex === -1 ? 1 : usageIndex;
         billIndex = billIndex === -1 ? 2 : billIndex;
@@ -281,45 +255,34 @@ export default function App() {
         const row = data[i];
         if (!row || row.length < 3) continue;
 
-        // 데이터 파싱
         let rawDate = row[monthIndex];
         let usage = parseFloat(String(row[usageIndex]).replace(/,/g, ''));
         let bill = parseFloat(String(row[billIndex]).replace(/,/g, ''));
 
-        // 처음 3개 데이터만 디버깅 출력
         if (i < headerRowIndex + 4) {
           console.log(`${i}번째 데이터 행:`, { rawDate, usage, bill, row: row.slice(0, 15) });
         }
 
-        if (isNaN(usage) || isNaN(bill)) {
-          if (i < headerRowIndex + 4) console.log(`  ⚠️ 사용량 또는 요금이 숫자가 아님`);
-          continue;
-        }
+        if (isNaN(usage) || isNaN(bill)) continue;
 
         let year = null;
         let month = null;
 
         if (typeof rawDate === 'number' && rawDate > 10000) {
-          const date = new Date((rawDate - (25567 + 2)) * 86400 * 1000); // adjust for excel leap year bug & origin
+          const date = new Date((rawDate - (25567 + 2)) * 86400 * 1000);
           year = date.getFullYear();
           month = date.getMonth() + 1;
-          console.log(`${i}번째 행: 날짜(숫자) ${rawDate} → ${year}년 ${month}월`);
         } else if (rawDate) {
           const dStr = String(rawDate).trim();
-          console.log(`${i}번째 행: 날짜(문자) "${dStr}"`);
           let match = dStr.match(/^(\d{4})[-\.년\s]*(\d{1,2})/);
           if (match) {
             year = parseInt(match[1], 10);
             month = parseInt(match[2], 10);
-            console.log(`  → 매칭 성공: ${year}년 ${month}월`);
           } else {
             match = dStr.match(/^(\d{2})[-\.년\s]*(\d{1,2})/);
             if (match) {
               year = 2000 + parseInt(match[1], 10);
               month = parseInt(match[2], 10);
-              console.log(`  → 매칭 성공(2자리): ${year}년 ${month}월`);
-            } else {
-              console.log(`  → 매칭 실패!`);
             }
           }
         }
@@ -331,47 +294,98 @@ export default function App() {
 
       console.log(`\n📈 총 ${parsed.length}개월 데이터 파싱됨`);
 
-      // 만약 정규 파싱 실패시, 모의 데이터 제공 기능 필요?
       if (parsed.length === 0) {
         alert(
           "❌ 데이터 인식 실패\n\n" +
-          "엑셀 파일에서 필수 컬럼을 찾지 못했습니다.\n\n" +
+          "파일에서 필수 컬럼을 찾지 못했습니다.\n\n" +
           "📋 필수 조건:\n" +
           "• 년/월 정보 컬럼 (예: '년월', '날짜')\n" +
           "• 사용량 컬럼 (예: '사용량', '전력량', 'kWh')\n" +
           "• 요금 컬럼 (예: '요금', '금액', '청구액')\n\n" +
           "💡 해결 방법:\n" +
-          "1. 엑셀 파일 상단의 불필요한 행 삭제\n" +
+          "1. 상단의 불필요한 행 삭제\n" +
           "2. 헤더 행을 최대한 위쪽(1~10번째 줄)에 배치\n" +
-          "3. 컬럼명에 위 키워드 포함\n\n" +
-          "샘플 데이터로 화면을 표시합니다."
+          "3. 컬럼명에 위 키워드 포함"
         );
-        const currentYear = new Date().getFullYear();
-        parsed = Array.from({length: 12}, (_, i) => ({
-          year: currentYear,
-          month: i + 1,
-          usage: Math.floor(10000 + Math.random() * 5000),
-          bill: Math.floor(1500000 + Math.random() * 500000)
-        }));
+        return null;
       }
 
-      setRawData(parsed);
+      return parsed;
+  };
 
-      const uniqueYears = [...new Set(parsed.map(item => item.year))].sort((a,b)=>b-a);
-      setYears(uniqueYears);
-      if (uniqueYears.length > 0) {
-        setStartYear(uniqueYears[0]);
-        setStartMonth(1);
-      }
+  // 파싱된 데이터를 state에 반영하는 공통 함수
+  const applyParsedData = (parsed, sourceName) => {
+    setRawData(parsed);
+    const uniqueYears = [...new Set(parsed.map(item => item.year))].sort((a, b) => b - a);
+    setYears(uniqueYears);
+    if (uniqueYears.length > 0) {
+      setStartYear(uniqueYears[0]);
+      setStartMonth(1);
+    }
+    console.log(`✅ [${sourceName}] ${parsed.length}개월 데이터 로드됨`);
+  };
 
-      // 파싱 성공 메시지 (샘플 데이터가 아닌 경우에만)
-      if (parsed.length > 0 && headerRowIndex !== -1) {
-        console.log(`✅ 데이터 파싱 성공: ${parsed.length}개월 데이터 로드됨`);
-        console.log(`📊 헤더 위치: ${headerRowIndex + 1}번째 줄`);
-        console.log(`📅 년도: ${uniqueYears.join(', ')}`);
-      }
+  // Parse Excel (로컬 파일)
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setFileName(file.name);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const wb = XLSX.read(evt.target.result, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const data = XLSX.utils.sheet_to_json(ws, { header: 1 });
+      const parsed = parseSheetData(data, file.name);
+      if (!parsed) return;
+      applyParsedData(parsed, file.name);
     };
-    reader.readAsBinaryString(file);
+    reader.readAsArrayBuffer(file);
+  };
+
+  // 구글 시트 URL → spreadsheetId 추출
+  const extractSheetId = (url) => {
+    const match = url.match(/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    return match ? match[1] : null;
+  };
+
+  // 구글 시트 불러오기
+  const handleGoogleSheetLoad = async () => {
+    const sheetId = extractSheetId(googleSheetUrl);
+    if (!sheetId) {
+      alert('❌ 올바른 구글 시트 URL이 아닙니다.\n\n구글 시트를 열고 주소창의 URL을 그대로 붙여넣어 주세요.\n예) https://docs.google.com/spreadsheets/d/...');
+      return;
+    }
+
+    setIsLoadingSheet(true);
+    const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
+
+    try {
+      const res = await fetch(csvUrl);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const csvText = await res.text();
+
+      const wb = XLSX.read(csvText, { type: 'string' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const data = XLSX.utils.sheet_to_json(ws, { header: 1 });
+
+      const parsed = parseSheetData(data, '구글 시트');
+      if (!parsed) return;
+
+      setFileName('구글 시트에서 불러옴');
+      applyParsedData(parsed, '구글 시트');
+    } catch (err) {
+      console.error(err);
+      alert(
+        '❌ 구글 시트를 불러오지 못했습니다.\n\n' +
+        '✅ 해결 방법:\n' +
+        '1. 구글 시트 공유 설정을 "링크가 있는 모든 사용자 - 뷰어" 로 변경해주세요.\n' +
+        '2. 시트 URL을 다시 복사하여 붙여넣어 주세요.\n\n' +
+        `오류: ${err.message}`
+      );
+    } finally {
+      setIsLoadingSheet(false);
+    }
   };
 
   // Generate Monthly Template
@@ -596,6 +610,38 @@ export default function App() {
                     {fileName ? `업로드됨: ${fileName}` : '클릭하거나 파일을 드래그하세요'}
                   </div>
                 </div>
+              </div>
+
+              {/* 구글 시트 URL 입력 */}
+              <div style={{display: 'flex', alignItems: 'center', gap: '12px', color: 'var(--text-secondary)', fontSize: '0.85rem'}}>
+                <div style={{flex: 1, height: '1px', background: 'rgba(255,255,255,0.1)'}} />
+                <span>또는 구글 시트 URL 입력</span>
+                <div style={{flex: 1, height: '1px', background: 'rgba(255,255,255,0.1)'}} />
+              </div>
+
+              <div style={{display: 'flex', gap: '8px'}}>
+                <input
+                  type="text"
+                  className="form-control"
+                  value={googleSheetUrl}
+                  onChange={e => setGoogleSheetUrl(e.target.value)}
+                  placeholder="https://docs.google.com/spreadsheets/d/..."
+                  style={{flex: 1, fontSize: '0.85rem'}}
+                  onKeyDown={e => e.key === 'Enter' && handleGoogleSheetLoad()}
+                />
+                <button
+                  className="btn btn-accent"
+                  onClick={handleGoogleSheetLoad}
+                  disabled={isLoadingSheet || !googleSheetUrl.trim()}
+                  style={{whiteSpace: 'nowrap', opacity: (!googleSheetUrl.trim() || isLoadingSheet) ? 0.5 : 1}}
+                >
+                  {isLoadingSheet ? '불러오는 중...' : '불러오기'}
+                </button>
+              </div>
+
+              <div style={{padding: '12px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.2)', fontSize: '0.82rem', color: 'var(--text-secondary)'}}>
+                <strong style={{color: 'var(--success-color)'}}>📋 구글 시트 사용 조건:</strong>
+                {' '}구글 시트 공유 설정이 <strong>"링크가 있는 모든 사용자 - 뷰어"</strong> 이상으로 설정되어 있어야 합니다.
               </div>
 
               <div style={{padding: '16px', borderRadius: '8px', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.2)', fontSize: '0.85rem', color: 'var(--text-secondary)'}}>

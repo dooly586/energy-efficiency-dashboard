@@ -349,7 +349,7 @@ export default function App() {
     return match ? match[1] : null;
   };
 
-  // 구글 시트 불러오기
+  // 구글 시트 불러오기 (CORS 프록시 순차 시도)
   const handleGoogleSheetLoad = async () => {
     const sheetId = extractSheetId(googleSheetUrl);
     if (!sheetId) {
@@ -358,12 +358,40 @@ export default function App() {
     }
 
     setIsLoadingSheet(true);
+
     const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
+    const gvizUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv`;
+
+    // CORS 우회: 직접 → gviz → 프록시 순서로 시도
+    const attempts = [
+      { url: csvUrl,                                                          label: '직접' },
+      { url: gvizUrl,                                                         label: 'gviz' },
+      { url: `https://corsproxy.io/?url=${encodeURIComponent(csvUrl)}`,       label: 'corsproxy' },
+      { url: `https://api.allorigins.win/raw?url=${encodeURIComponent(csvUrl)}`, label: 'allorigins' },
+    ];
+
+    let csvText = null;
+
+    for (const attempt of attempts) {
+      try {
+        console.log(`🔄 구글 시트 불러오기 시도 [${attempt.label}]: ${attempt.url.substring(0, 80)}...`);
+        const res = await fetch(attempt.url, { signal: AbortSignal.timeout(8000) });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const text = await res.text();
+        // HTML 응답(오류 페이지)이 아닌지 확인
+        if (text.trim().startsWith('<') && text.includes('<!DOCTYPE')) {
+          throw new Error('HTML 오류 페이지 반환');
+        }
+        csvText = text;
+        console.log(`✅ [${attempt.label}] 성공`);
+        break;
+      } catch (err) {
+        console.warn(`⚠️ [${attempt.label}] 실패: ${err.message}`);
+      }
+    }
 
     try {
-      const res = await fetch(csvUrl);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const csvText = await res.text();
+      if (!csvText) throw new Error('모든 경로 실패');
 
       const wb = XLSX.read(csvText, { type: 'string' });
       const ws = wb.Sheets[wb.SheetNames[0]];
@@ -379,9 +407,10 @@ export default function App() {
       alert(
         '❌ 구글 시트를 불러오지 못했습니다.\n\n' +
         '✅ 해결 방법:\n' +
-        '1. 구글 시트 공유 설정을 "링크가 있는 모든 사용자 - 뷰어" 로 변경해주세요.\n' +
-        '2. 시트 URL을 다시 복사하여 붙여넣어 주세요.\n\n' +
-        `오류: ${err.message}`
+        '1. 구글 시트 상단 [공유] 버튼 클릭\n' +
+        '2. "링크가 있는 모든 사용자" 선택 후 권한을 "뷰어"로 설정\n' +
+        '3. 링크 복사 후 다시 붙여넣기\n\n' +
+        '💡 또는 파일을 직접 다운로드(.xlsx)하여 업로드해 주세요.'
       );
     } finally {
       setIsLoadingSheet(false);

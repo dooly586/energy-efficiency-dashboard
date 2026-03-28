@@ -175,142 +175,222 @@ export default function App() {
 
   // 공통 시트 데이터 파싱 함수
   const parseSheetData = (data, sourceName = '') => {
-      let parsed = [];
-      let headerRowIndex = -1;
-      let monthIndex = -1, usageIndex = -1, billIndex = -1;
+    let parsed = [];
 
-      console.log(`📄 [${sourceName}] 데이터 처음 5줄:`);
-      for (let i = 0; i < Math.min(5, data.length); i++) {
-        console.log(`${i}번째 줄:`, data[i]);
+    // 처음 10줄 로그
+    console.log(`📄 [${sourceName}] 데이터 처음 10줄:`);
+    for (let i = 0; i < Math.min(10, data.length); i++) {
+      console.log(`  ${i}:`, data[i]);
+    }
+
+    // ── 1. 헤더 행 찾기 (점수제: 3그룹 중 2그룹 이상 포함하면 헤더 인정) ──
+    let headerRowIndex = -1;
+    let bestScore = 0;
+
+    for (let i = 0; i < Math.min(20, data.length); i++) {
+      const row = data[i];
+      if (!row || !row.some(c => c != null && c !== '')) continue;
+      const rowStr = row.map(c => String(c || '')).join(' ').toLowerCase();
+
+      let score = 0;
+      if (rowStr.includes('월') || rowStr.includes('년') || rowStr.includes('date') || rowStr.includes('날짜')) score += 2;
+      if (rowStr.includes('사용') || rowStr.includes('kwh') || rowStr.includes('전력')) score += 2;
+      if (rowStr.includes('요금') || rowStr.includes('금액') || rowStr.includes('청구')) score += 2;
+
+      if (score > bestScore) {
+        bestScore = score;
+        headerRowIndex = i;
+      }
+    }
+
+    if (bestScore < 2) headerRowIndex = -1;
+    console.log(`헤더 행: ${headerRowIndex} (점수: ${bestScore})`);
+
+    let monthIndex = -1, yearIndex = -1, usageIndex = -1, billIndex = -1;
+
+    if (headerRowIndex !== -1) {
+      const headerRow = data[headerRowIndex];
+      console.log('헤더 내용:', headerRow);
+
+      // Pass 1 – 우선순위 요금 컬럼 (청구/납부/합계/총)
+      headerRow.forEach((col, idx) => {
+        if (col == null || col === '') return;
+        const cStr = String(col).toLowerCase().replace(/\s/g, '');
+        if ((cStr.includes('청구') || cStr.includes('납부') || cStr.includes('합계') ||
+             cStr.includes('최종') || cStr.includes('총액')) &&
+            !cStr.includes('유형') && !cStr.includes('타입') && !cStr.includes('기간')) {
+          billIndex = idx;
+          console.log(`⭐ 요금(우선): ${idx} (${col})`);
+        }
+      });
+
+      // Pass 2 – 나머지 컬럼
+      headerRow.forEach((col, idx) => {
+        if (col == null || col === '') return;
+        const cStr = String(col).toLowerCase().replace(/\s/g, '');
+
+        // 사용량
+        if (usageIndex === -1 && !cStr.includes('기간') && !cStr.includes('계약') &&
+            (cStr.includes('사용량') || cStr.includes('kwh') || cStr.includes('전력량'))) {
+          usageIndex = idx;
+          console.log(`사용량: ${idx} (${col})`);
+        }
+        // 요금 2순위
+        if (billIndex === -1 &&
+            (cStr.includes('요금') || cStr.includes('금액')) &&
+            !cStr.includes('유형') && !cStr.includes('타입') &&
+            !cStr.includes('기본') && !cStr.includes('전력량') && !cStr.includes('부가')) {
+          billIndex = idx;
+          console.log(`요금: ${idx} (${col})`);
+        }
+        // 년월 통합
+        if (monthIndex === -1 && (cStr.includes('년월') || cStr.includes('날짜') || cStr === 'date')) {
+          monthIndex = idx;
+          console.log(`년월: ${idx} (${col})`);
+        }
+        // 년도 별도
+        if (yearIndex === -1 && monthIndex === -1 &&
+            (cStr === '년' || cStr === '년도' || cStr === 'year' || cStr === '연도')) {
+          yearIndex = idx;
+          console.log(`년도: ${idx} (${col})`);
+        }
+        // 월 별도 (년도 컬럼이 있거나, 단독 '월' 컬럼)
+        if (monthIndex === -1 &&
+            (cStr === '월' || cStr === '월도' || cStr === 'month' ||
+             (cStr.includes('월') && !cStr.includes('사용') && !cStr.includes('요금') && !cStr.includes('금액')))) {
+          monthIndex = idx;
+          console.log(`월: ${idx} (${col})`);
+        }
+      });
+    }
+
+    // ── 2. 데이터 분석 기반 자동 감지 (헤더 감지 실패 시 보완) ──
+    const startRow = headerRowIndex !== -1 ? headerRowIndex + 1 : 0;
+    const sampleRows = data.slice(startRow, Math.min(startRow + 6, data.length))
+                           .filter(r => r && r.some(c => c != null && c !== ''));
+
+    if ((monthIndex === -1 || usageIndex === -1 || billIndex === -1) && sampleRows.length > 0) {
+      console.warn('⚠️ 헤더 감지 보완 – 데이터 값 분석 중');
+      const colCount = Math.max(...sampleRows.map(r => r.length));
+
+      for (let ci = 0; ci < colCount; ci++) {
+        if (ci === yearIndex) continue;
+        const vals = sampleRows.map(r => r ? r[ci] : null).filter(v => v != null && v !== '');
+        if (vals.length === 0) continue;
+
+        const hasDate = vals.some(v => {
+          const s = String(v);
+          return /\d{4}[-년\/\.]\d{1,2}/.test(s) || /^\d{2}[-년\/\.]\d{1,2}/.test(s);
+        });
+        const numVals = vals.map(v => parseFloat(String(v).replace(/,/g, ''))).filter(n => !isNaN(n));
+        const avgNum = numVals.length > 0 ? numVals.reduce((a, b) => a + b, 0) / numVals.length : 0;
+
+        if (hasDate && monthIndex === -1) {
+          monthIndex = ci;
+          console.log(`📅 날짜 자동 감지: col ${ci}`);
+        } else if (numVals.length >= sampleRows.length * 0.5) {
+          if (avgNum >= 10000 && billIndex === -1 && ci !== monthIndex) {
+            billIndex = ci;
+            console.log(`💰 요금 자동 감지: col ${ci} (평균 ${Math.round(avgNum)})`);
+          } else if (avgNum > 0 && avgNum < 10000 && usageIndex === -1 && ci !== monthIndex && ci !== billIndex) {
+            usageIndex = ci;
+            console.log(`⚡ 사용량 자동 감지: col ${ci} (평균 ${Math.round(avgNum)})`);
+          }
+        }
+      }
+    }
+
+    // 최종 폴백
+    if (headerRowIndex === -1) headerRowIndex = 0;
+    if (monthIndex === -1) { monthIndex = 0; console.warn('month → col 0 폴백'); }
+    if (usageIndex === -1) { usageIndex = 1; console.warn('usage → col 1 폴백'); }
+    if (billIndex === -1)  { billIndex = 2;  console.warn('bill  → col 2 폴백'); }
+
+    console.log('📊 최종 컬럼:', { headerRowIndex, yearIndex, monthIndex, usageIndex, billIndex });
+
+    // ── 3. 데이터 행 파싱 ──
+    let lastYear = null;
+
+    for (let i = headerRowIndex + 1; i < data.length; i++) {
+      const row = data[i];
+      if (!row || row.length < 2) continue;
+
+      const usage = parseFloat(String(row[usageIndex] ?? '').replace(/,/g, ''));
+      const bill  = parseFloat(String(row[billIndex]  ?? '').replace(/,/g, ''));
+
+      if (i <= headerRowIndex + 4) {
+        console.log(`  행 ${i}:`, { raw: row.slice(0, 12), usage, bill });
       }
 
-      for (let i = 0; i < Math.min(50, data.length); i++) {
-        const row = data[i];
-        if (!row) continue;
-        const rowStr = row.join(' ').toLowerCase();
+      // 청구액만 있어도 허용 (사용량이 없으면 0으로 처리)
+      if (isNaN(bill)) continue;
+      const safeUsage = isNaN(usage) ? 0 : usage;
 
-        if (i < 10) {
-          console.log(`${i}번째 줄 검사:`, {
-            rowStr: rowStr.substring(0, 100),
-            has월년: rowStr.includes('월') || rowStr.includes('년'),
-            has사용전력: rowStr.includes('사용') || rowStr.includes('kwh') || rowStr.includes('전력'),
-            has요금: rowStr.includes('요금') || rowStr.includes('금액') || rowStr.includes('청구')
-          });
-        }
-        if ((rowStr.includes('월') || rowStr.includes('년') || rowStr.includes('date')) &&
-            (rowStr.includes('사용') || rowStr.includes('kwh') || rowStr.includes('전력')) &&
-            (rowStr.includes('요금') || rowStr.includes('금액') || rowStr.includes('청구'))) {
-          headerRowIndex = i;
-          console.log(`✅ 헤더 찾음! ${i}번째 줄`);
-          console.log('헤더 내용:', row);
+      let year = null, month = null;
 
-          row.forEach((col, idx) => {
-            if (!col) return;
-            const cStr = String(col).toLowerCase().replace(/\s/g, '');
-
-            if (!cStr.includes('기간') && !cStr.includes('계약') &&
-                (cStr.includes('사용') || cStr.includes('kwh') || cStr.includes('전력량'))) {
-              if (usageIndex === -1) {
-                usageIndex = idx;
-                console.log(`사용량 컬럼: ${idx} (${col})`);
-              }
-            } else if ((cStr.includes('요금') || cStr.includes('금액')) &&
-                     !cStr.includes('청구유형') && !cStr.includes('청구타입') && !cStr.includes('type') &&
-                     !cStr.includes('기본') && !cStr.includes('전력량') && !cStr.includes('부가')) {
-              const isPriority = cStr.includes('청구') || cStr.includes('합계') ||
-                                cStr.includes('계') || cStr.includes('총') ||
-                                cStr.includes('납부') || cStr.includes('최종');
-              if (isPriority) {
-                billIndex = idx;
-                console.log(`⭐ 요금 컬럼 (우선순위): ${idx} (${col})`);
-              } else if (billIndex === -1) {
-                billIndex = idx;
-                console.log(`요금 컬럼: ${idx} (${col})`);
-              }
-            } else if (!cStr.includes('기간') && (cStr.includes('월') || cStr.includes('년') || cStr.includes('일') || cStr.includes('date'))) {
-              if (monthIndex === -1) {
-                monthIndex = idx;
-                console.log(`년월 컬럼: ${idx} (${col})`);
-              }
-            }
-          });
-          break;
-        }
+      // 년도 별도 컬럼
+      if (yearIndex !== -1 && row[yearIndex] != null) {
+        const y = parseInt(String(row[yearIndex]).replace(/\D/g, ''), 10);
+        if (!isNaN(y)) year = y < 100 ? 2000 + y : y;
       }
 
-      if (headerRowIndex === -1) {
-        console.warn('⚠️ 헤더를 찾지 못함! 기본값 사용 (0,1,2)');
-        monthIndex = 0; usageIndex = 1; billIndex = 2;
-        headerRowIndex = 0;
-      } else if (monthIndex === -1 || usageIndex === -1 || billIndex === -1) {
-        console.warn('⚠️ 일부 컬럼을 찾지 못함! 기본값 사용');
-        monthIndex = monthIndex === -1 ? 0 : monthIndex;
-        usageIndex = usageIndex === -1 ? 1 : usageIndex;
-        billIndex = billIndex === -1 ? 2 : billIndex;
-      }
+      const rawDate = row[monthIndex];
 
-      console.log('📊 최종 컬럼 인덱스:', { headerRowIndex, monthIndex, usageIndex, billIndex });
-
-      for (let i = headerRowIndex + 1; i < data.length; i++) {
-        const row = data[i];
-        if (!row || row.length < 3) continue;
-
-        let rawDate = row[monthIndex];
-        let usage = parseFloat(String(row[usageIndex]).replace(/,/g, ''));
-        let bill = parseFloat(String(row[billIndex]).replace(/,/g, ''));
-
-        if (i < headerRowIndex + 4) {
-          console.log(`${i}번째 데이터 행:`, { rawDate, usage, bill, row: row.slice(0, 15) });
-        }
-
-        if (isNaN(usage) || isNaN(bill)) continue;
-
-        let year = null;
-        let month = null;
-
-        if (typeof rawDate === 'number' && rawDate > 10000) {
-          const date = new Date((rawDate - (25567 + 2)) * 86400 * 1000);
-          year = date.getFullYear();
-          month = date.getMonth() + 1;
-        } else if (rawDate) {
-          const dStr = String(rawDate).trim();
-          let match = dStr.match(/^(\d{4})[-\.년\s]*(\d{1,2})/);
+      if (typeof rawDate === 'number' && rawDate > 10000) {
+        // Excel serial date
+        const date = new Date((rawDate - (25567 + 2)) * 86400 * 1000);
+        if (!year) year = date.getFullYear();
+        month = date.getMonth() + 1;
+      } else if (rawDate != null && rawDate !== '') {
+        const dStr = String(rawDate).trim();
+        // 2024-01 / 2024년1월 / 2024.01
+        let match = dStr.match(/(\d{4})[-\.년\/\s]*(\d{1,2})/);
+        if (match) {
+          if (!year) year = parseInt(match[1], 10);
+          month = parseInt(match[2], 10);
+        } else {
+          // 24-01 / 24년1월
+          match = dStr.match(/^(\d{2})[-\.년\/\s]*(\d{1,2})/);
           if (match) {
-            year = parseInt(match[1], 10);
+            if (!year) year = 2000 + parseInt(match[1], 10);
             month = parseInt(match[2], 10);
           } else {
-            match = dStr.match(/^(\d{2})[-\.년\s]*(\d{1,2})/);
+            // 월만 있는 경우 – 이전 행의 년도 이어받기
+            match = dStr.match(/^(\d{1,2})\s*월?$/);
             if (match) {
-              year = 2000 + parseInt(match[1], 10);
-              month = parseInt(match[2], 10);
+              month = parseInt(match[1], 10);
+              if (!year && lastYear) year = lastYear;
             }
           }
         }
-
-        if (year && month) {
-          parsed.push({ year, month, usage, bill });
-        }
       }
 
-      console.log(`\n📈 총 ${parsed.length}개월 데이터 파싱됨`);
-
-      if (parsed.length === 0) {
-        alert(
-          "❌ 데이터 인식 실패\n\n" +
-          "파일에서 필수 컬럼을 찾지 못했습니다.\n\n" +
-          "📋 필수 조건:\n" +
-          "• 년/월 정보 컬럼 (예: '년월', '날짜')\n" +
-          "• 사용량 컬럼 (예: '사용량', '전력량', 'kWh')\n" +
-          "• 요금 컬럼 (예: '요금', '금액', '청구액')\n\n" +
-          "💡 해결 방법:\n" +
-          "1. 상단의 불필요한 행 삭제\n" +
-          "2. 헤더 행을 최대한 위쪽(1~10번째 줄)에 배치\n" +
-          "3. 컬럼명에 위 키워드 포함"
-        );
-        return null;
+      if (year && month && month >= 1 && month <= 12) {
+        lastYear = year;
+        parsed.push({ year, month, usage: safeUsage, bill });
       }
+    }
 
-      return parsed;
+    console.log(`\n📈 총 ${parsed.length}개월 데이터 파싱됨`);
+
+    if (parsed.length === 0) {
+      const preview = data.slice(0, 5)
+        .map((r, i) => `${i}: ${r ? r.slice(0, 6).join(' | ') : '(빈 행)'}`)
+        .join('\n');
+      alert(
+        "❌ 데이터 인식 실패\n\n" +
+        "유효한 데이터 행을 찾지 못했습니다.\n\n" +
+        "📋 파일 상단 내용 (처음 5줄):\n" +
+        preview + "\n\n" +
+        "💡 해결 방법:\n" +
+        "• 날짜 형식: 2024-01, 2024년1월, 24년1월 등\n" +
+        "• 컬럼 헤더 포함: 년월/날짜, 사용량/kWh, 요금/청구금액\n" +
+        "• 또는 파일 직접 다운로드(.xlsx) 후 업로드"
+      );
+      return null;
+    }
+
+    return parsed;
   };
 
   // 파싱된 데이터를 state에 반영하는 공통 함수

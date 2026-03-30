@@ -1667,7 +1667,7 @@ export default function App() {
                   <div style={{fontSize: '0.75rem', color: 'rgba(255,255,255,0.5)', marginBottom: '8px'}}>할부기간 동안 아낀 전기요금 총합에서 각종 총 비용을 뺀 실제 이익금액입니다. 플러스일 경우 갚고도 남는 수익을 뜻합니다.</div>
                   <div style={{fontSize: '1.25rem', fontWeight: 600, color: 'var(--warning-color)'}}>{formatMoney((stats.averageSavingsMonthly * Number(installmentMonths)) - totalCost)}원</div>
                 </div>
-                <div style={{padding: '24px', background: 'rgba(16,185,129,0.1)', borderRadius: '8px', gridColumn: '1 / -1', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid rgba(16,185,129,0.3)'}}>
+                <div style={{padding: '24px', background: 'rgba(16,185,129,0.1)', borderRadius: '8px', gridColumn: '1 / -1', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', border: '1px solid rgba(16,185,129,0.3)'}}>
                   <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
                     <div style={{background: 'var(--success-color)', borderRadius: '50%', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
                       <TrendingDown color="white" size={24} />
@@ -1732,12 +1732,12 @@ export default function App() {
 
           {/* 4. 데이터 테이블 & 익스포트 */}
           <section className="glass-panel">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '20px' }}>
               <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
                 <Calendar size={20} color="var(--primary-color)" />
                 월별 상세 데이터 리포트 목록
               </h3>
-              <div style={{display: 'flex', gap: '12px'}}>
+              <div style={{display: 'flex', gap: '12px', flexWrap: 'wrap'}}>
                 <button className="btn" style={{background: 'rgba(59, 130, 246, 0.2)', color: 'var(--primary-color)'}} onClick={handleDownloadImage}>
                   <Download size={18} /> 대시보드 캡처 (이미지)
                 </button>

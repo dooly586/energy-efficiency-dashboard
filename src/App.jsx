@@ -1829,10 +1829,10 @@ export default function App() {
                   <tr>
                     <th>월</th>
                     <th>총 전력량(kWh)</th>
-                    <th>기존 총 요금</th>
-                    <th>기존 보일러 요금</th>
-                    <th>개선 후 보일러 요금</th>
-                    <th className="text-success">예상 절감액</th>
+                    <th>기존 총 요금(원)</th>
+                    <th>기존 보일러 요금(원)</th>
+                    <th>개선 후 보일러 요금(원)</th>
+                    <th className="text-success">예상 절감액(원)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1840,19 +1840,19 @@ export default function App() {
                     <tr key={d.displayMonth}>
                       <td style={{textAlign: 'center'}}>{d.displayMonth}</td>
                       <td>{d.rawUsage !== null ? formatMoney(d.usage) : '-'}</td>
-                      <td>{formatMoney(d.totalBill)}원</td>
-                      <td>{formatMoney(d.boilerBill)}원</td>
-                      <td>{formatMoney(d.newBoilerBill)}원</td>
-                      <td className="text-success" style={{fontWeight: 600}}>↓ {formatMoney(d.expectedSavings)}원</td>
+                      <td>{formatMoney(d.totalBill)}</td>
+                      <td>{formatMoney(d.boilerBill)}</td>
+                      <td>{formatMoney(d.newBoilerBill)}</td>
+                      <td className="text-success" style={{fontWeight: 600}}>↓ {formatMoney(d.expectedSavings)}</td>
                     </tr>
                   ))}
                   <tr style={{background: 'rgba(59, 130, 246, 0.1)', fontWeight: 'bold'}}>
                     <td style={{textAlign: 'center'}}>합계</td>
                     <td>{stats.usageAvailable ? formatMoney(stats.totalUsage) : '-'}</td>
-                    <td>{formatMoney(stats.totalBill)}원</td>
-                    <td>{formatMoney(stats.totalBoilerBill)}원</td>
-                    <td>{formatMoney(stats.totalBoilerBill - stats.totalSavings)}원</td>
-                    <td className="text-success">↓ {formatMoney(stats.totalSavings)}원</td>
+                    <td>{formatMoney(stats.totalBill)}</td>
+                    <td>{formatMoney(stats.totalBoilerBill)}</td>
+                    <td>{formatMoney(stats.totalBoilerBill - stats.totalSavings)}</td>
+                    <td className="text-success">↓ {formatMoney(stats.totalSavings)}</td>
                   </tr>
                 </tbody>
               </table>

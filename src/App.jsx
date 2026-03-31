@@ -322,9 +322,9 @@ export default function App() {
         console.log(`  행 ${i}:`, { raw: row.slice(0, 12), usage, bill });
       }
 
-      // 청구액만 있어도 허용 (사용량이 없으면 0으로 처리)
+      // 청구액만 있어도 허용 (사용량이 없으면 null로 처리)
       if (isNaN(bill)) continue;
-      const safeUsage = isNaN(usage) ? 0 : usage;
+      const safeUsage = isNaN(usage) ? null : usage;
 
       let year = null, month = null;
 
@@ -507,7 +507,8 @@ export default function App() {
 
     for (let c = 0; c < 12; c++) {
       const found = rawData.find(d => d.year === currentY && d.month === currentM);
-      const usage = found ? found.usage : 0;
+      const rawUsage = found ? found.usage : null;   // null = 데이터 없거나 시트에 사용량 컬럼 없음
+      const usage = rawUsage ?? 0;                   // 계산용은 0으로 대체
       const totalBill = found ? found.bill : 0;
 
       const safeOtherPowerBill = Number(otherPowerBill) || 0;
@@ -548,6 +549,7 @@ export default function App() {
         year: currentY,
         month: currentM,
         usage,
+        rawUsage,   // null이면 시트에 사용량 데이터 없음
         totalBill,
         boilerBill,
         expectedSavings: savings,
@@ -579,9 +581,11 @@ export default function App() {
   const stats = useMemo(() => {
     if (!monthlyData.length) return null;
     let totalUsage = 0, totalBill = 0, totalBoilerBill = 0, totalSavings = 0, totalNewBill = 0;
+    let usageAvailable = false;
 
     monthlyData.forEach(d => {
       totalUsage += d.usage;
+      if (d.rawUsage !== null) usageAvailable = true;
       totalBill += d.totalBill;
       totalBoilerBill += d.boilerBill;
       totalSavings += d.expectedSavings;
@@ -615,6 +619,7 @@ export default function App() {
       avgTotalBill,
       avgNewTotalBill,
       monthlyTotalBurden,
+      usageAvailable,
       breakevenRate
     };
   }, [monthlyData, totalCost, installmentMonths]);
@@ -1813,7 +1818,7 @@ export default function App() {
                   {monthlyData.map(d => (
                     <tr key={d.displayMonth}>
                       <td style={{textAlign: 'center'}}>{d.displayMonth}</td>
-                      <td>{formatMoney(d.usage)}</td>
+                      <td>{d.rawUsage !== null ? formatMoney(d.usage) : '-'}</td>
                       <td>{formatMoney(d.totalBill)}원</td>
                       <td>{formatMoney(d.boilerBill)}원</td>
                       <td>{formatMoney(d.newBoilerBill)}원</td>
@@ -1822,7 +1827,7 @@ export default function App() {
                   ))}
                   <tr style={{background: 'rgba(59, 130, 246, 0.1)', fontWeight: 'bold'}}>
                     <td style={{textAlign: 'center'}}>합계</td>
-                    <td>{formatMoney(stats.totalUsage)}</td>
+                    <td>{stats.usageAvailable ? formatMoney(stats.totalUsage) : '-'}</td>
                     <td>{formatMoney(stats.totalBill)}원</td>
                     <td>{formatMoney(stats.totalBoilerBill)}원</td>
                     <td>{formatMoney(stats.totalBoilerBill - stats.totalSavings)}원</td>

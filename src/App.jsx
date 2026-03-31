@@ -1087,11 +1087,24 @@ export default function App() {
             )}
           </div>
         )}
+
+        {/* 다음 단계 유도 버튼 */}
+        {monthlyData.length > 0 && (
+          <div style={{marginTop: '24px', textAlign: 'center'}}>
+            <button
+              className="btn btn-primary"
+              onClick={() => document.getElementById('section-contract')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+              style={{gap: '8px', fontSize: '1rem', padding: '14px 32px'}}
+            >
+              다음 단계 — 전기요금 설정 ↓
+            </button>
+          </div>
+        )}
       </section>
 
       {/* 전기요금 계약종별 선택 */}
       {(rawData.length > 0 || (inputMode === 'manual' && manualInputType === 'annual' && annualBill)) && (
-        <section className="glass-panel mb-6">
+        <section id="section-contract" className="glass-panel mb-6">
           <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '24px' }}>
             <Zap size={24} color="var(--warning-color)" />
             전기요금 단가 설정

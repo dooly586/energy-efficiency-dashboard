@@ -578,18 +578,23 @@ export default function App() {
   // Aggregated Stats
   const stats = useMemo(() => {
     if (!monthlyData.length) return null;
-    let totalUsage = 0, totalBill = 0, totalBoilerBill = 0, totalSavings = 0;
-    
+    let totalUsage = 0, totalBill = 0, totalBoilerBill = 0, totalSavings = 0, totalNewBill = 0;
+
     monthlyData.forEach(d => {
       totalUsage += d.usage;
       totalBill += d.totalBill;
       totalBoilerBill += d.boilerBill;
       totalSavings += d.expectedSavings;
+      totalNewBill += d.newTotalBill;
     });
 
+    const n = monthlyData.length;
     const monthlyInstallment = (Number(installmentMonths)||0) > 0 ? totalCost / Number(installmentMonths) : 0;
-    // 임대료를 할부금과 동일하게 보거나, 부대비용 포함 가능. 여기서는 할부금=임대료 기준으로 안내.
-    const monthlyRental = monthlyInstallment; 
+    const monthlyRental = monthlyInstallment;
+
+    const avgTotalBill = totalBill / n;             // 개선 전 월 평균 전기료
+    const avgNewTotalBill = totalNewBill / n;        // 개선 후 월 평균 전기료
+    const monthlyTotalBurden = avgNewTotalBill + monthlyInstallment; // 개선 후 실제 월 부담 (전기료+임대료)
 
     const netBenefitMonthly = (totalSavings / 12) - monthlyInstallment;
 
@@ -599,14 +604,17 @@ export default function App() {
       : 0;
 
     return {
-      totalUsage, 
-      totalBill, 
-      totalBoilerBill, 
-      totalSavings, 
-      monthlyInstallment, 
+      totalUsage,
+      totalBill,
+      totalBoilerBill,
+      totalSavings,
+      monthlyInstallment,
       monthlyRental,
       netBenefitMonthly,
       averageSavingsMonthly: totalSavings / 12,
+      avgTotalBill,
+      avgNewTotalBill,
+      monthlyTotalBurden,
       breakevenRate
     };
   }, [monthlyData, totalCost, installmentMonths]);
@@ -1646,6 +1654,46 @@ export default function App() {
                 <div style={{fontSize: '0.875rem', color: 'var(--text-secondary)'}}>
                   {stats.netBenefitMonthly >= 0 ? '도입 즉시 수익 발생!' : '절감액으로 할부금 일부 상쇄'}
                 </div>
+              </div>
+            </div>
+
+            {/* 개선 후 실제 월 부담 비교 */}
+            <div style={{marginBottom: '24px', padding: '24px', borderRadius: '12px', background: 'rgba(30,41,59,0.7)', border: '1px solid var(--card-border)'}}>
+              <div style={{fontWeight: 700, fontSize: '1rem', marginBottom: '16px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em'}}>
+                월 부담 비용 비교 (교체 전 vs 교체 후)
+              </div>
+              <div style={{display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap'}}>
+                {/* 개선 전 */}
+                <div style={{flex: '1 1 180px', padding: '16px', borderRadius: '10px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', textAlign: 'center'}}>
+                  <div style={{fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px'}}>교체 전 월 전기료</div>
+                  <div style={{fontSize: '1.4rem', fontWeight: 700, color: 'var(--primary-color)'}}>{formatMoney(stats.avgTotalBill)}원</div>
+                </div>
+
+                <div style={{fontSize: '1.5rem', color: 'var(--text-secondary)', flexShrink: 0}}>→</div>
+
+                {/* 개선 후 전기료 + 임대료 분해 */}
+                <div style={{flex: '1 1 220px', padding: '16px', borderRadius: '10px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', textAlign: 'center'}}>
+                  <div style={{fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px'}}>교체 후 실제 월 부담</div>
+                  <div style={{fontSize: '1.4rem', fontWeight: 700, color: 'var(--success-color)'}}>{formatMoney(stats.monthlyTotalBurden)}원</div>
+                  <div style={{fontSize: '0.78rem', color: 'rgba(255,255,255,0.45)', marginTop: '6px'}}>
+                    전기료 {formatMoney(stats.avgNewTotalBill)}원 + 임대료 {formatMoney(stats.monthlyInstallment)}원
+                  </div>
+                </div>
+
+                <div style={{fontSize: '1.5rem', color: 'var(--text-secondary)', flexShrink: 0}}>=</div>
+
+                {/* 차이 */}
+                {(() => {
+                  const diff = stats.avgTotalBill - stats.monthlyTotalBurden;
+                  return (
+                    <div style={{flex: '1 1 160px', padding: '16px', borderRadius: '10px', background: diff >= 0 ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.1)', border: diff >= 0 ? '1px solid rgba(16,185,129,0.4)' : '1px solid rgba(239,68,68,0.3)', textAlign: 'center'}}>
+                      <div style={{fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px'}}>{diff >= 0 ? '월 절감' : '월 추가 부담'}</div>
+                      <div style={{fontSize: '1.4rem', fontWeight: 700, color: diff >= 0 ? 'var(--success-color)' : 'var(--danger-color)'}}>
+                        {diff >= 0 ? '-' : '+'}{formatMoney(Math.abs(diff))}원
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
 

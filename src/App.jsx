@@ -341,6 +341,15 @@ export default function App() {
         const date = new Date((rawDate - (25567 + 2)) * 86400 * 1000);
         if (!year) year = date.getFullYear();
         month = date.getMonth() + 1;
+      } else if (typeof rawDate === 'number' && rawDate > 2000 && rawDate < 2100) {
+        // 년.월 숫자형: 2025.10 → Google Sheets 추출 시 2025.1로 변환됨
+        // Math.round(소수부 × 100)으로 월 복원 (2025.1 → 10월, 2025.01 → 1월)
+        const y = Math.floor(rawDate);
+        const m = Math.round((rawDate - y) * 100);
+        if (m >= 1 && m <= 12) {
+          if (!year) year = y;
+          month = m;
+        }
       } else if (rawDate != null && rawDate !== '') {
         const dStr = String(rawDate).trim();
         // 2024-01 / 2024년1월 / 2024.01

@@ -531,18 +531,26 @@ export default function App() {
 
         // ⚠️ 안전장치: 이론 계산 보일러 사용량이 실제 전체 사용량을 초과하지 않도록 제한
         if (usage > 0 && boilerUsage > usage) {
-          boilerUsage = usage * 0.95; // 최대 전체 사용량의 95%까지만 허용
+          boilerUsage = usage * 0.95;
         }
 
         // 평균 전기단가 계산 (원/kWh)
-        const averageRate = usage > 0 ? totalBill / usage : getElectricityRate(); // 계약종별 기본값
+        const averageRate = usage > 0 ? totalBill / usage : getElectricityRate();
 
         // 보일러 요금 = 보일러 사용량 × 전기단가
-        boilerBill = boilerUsage * averageRate;
+        // ⚠️ 안전장치: 이론값이 실제 청구액을 초과하면 청구액으로 상한
+        boilerBill = Math.min(boilerUsage * averageRate, totalBill > 0 ? totalBill : Infinity);
       }
 
       const savings = boilerBill * (safeSavingsRate / 100);
       const newBoilerBill = boilerBill - savings;
+
+      // 기저부하(비보일러 전기료) 결정
+      // - 청구서 기반: 사용자가 직접 입력한 값 사용
+      // - 이론 계산: totalBill - boilerBill 로 자동 산출
+      const effectiveOtherBill = totalBill > 0
+        ? (calculationMethod === 'theoretical' ? totalBill - boilerBill : safeOtherPowerBill)
+        : 0;
 
       res.push({
         displayMonth: `${currentY.toString().slice(-2)}년 ${currentM}월`,
@@ -554,7 +562,7 @@ export default function App() {
         boilerBill,
         expectedSavings: savings,
         newBoilerBill,
-        newTotalBill: newBoilerBill + (totalBill > 0 ? safeOtherPowerBill : 0)
+        newTotalBill: newBoilerBill + effectiveOtherBill
       });
 
       currentM++;

@@ -1659,13 +1659,16 @@ export default function App() {
 
             {/* 개선 후 실제 월 부담 비교 */}
             <div style={{marginBottom: '24px', padding: '24px', borderRadius: '12px', background: 'rgba(30,41,59,0.7)', border: '1px solid var(--card-border)'}}>
-              <div style={{fontWeight: 700, fontSize: '1rem', marginBottom: '16px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em'}}>
-                월 부담 비용 비교 (교체 전 vs 교체 후)
+              <div style={{fontWeight: 700, fontSize: '1rem', marginBottom: '4px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em'}}>
+                월 평균 부담 비용 비교 (교체 전 vs 교체 후)
+              </div>
+              <div style={{fontSize: '0.8rem', color: 'rgba(255,255,255,0.35)', marginBottom: '16px'}}>
+                * 입력된 12개월 데이터의 월 평균 기준
               </div>
               <div style={{display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap'}}>
                 {/* 개선 전 */}
                 <div style={{flex: '1 1 180px', padding: '16px', borderRadius: '10px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', textAlign: 'center'}}>
-                  <div style={{fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px'}}>교체 전 월 전기료</div>
+                  <div style={{fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px'}}>교체 전 월 평균 전기료</div>
                   <div style={{fontSize: '1.4rem', fontWeight: 700, color: 'var(--primary-color)'}}>{formatMoney(stats.avgTotalBill)}원</div>
                 </div>
 
@@ -1673,10 +1676,10 @@ export default function App() {
 
                 {/* 개선 후 전기료 + 임대료 분해 */}
                 <div style={{flex: '1 1 220px', padding: '16px', borderRadius: '10px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', textAlign: 'center'}}>
-                  <div style={{fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px'}}>교체 후 실제 월 부담</div>
+                  <div style={{fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px'}}>교체 후 실제 월 평균 부담</div>
                   <div style={{fontSize: '1.4rem', fontWeight: 700, color: 'var(--success-color)'}}>{formatMoney(stats.monthlyTotalBurden)}원</div>
                   <div style={{fontSize: '0.78rem', color: 'rgba(255,255,255,0.45)', marginTop: '6px'}}>
-                    전기료 {formatMoney(stats.avgNewTotalBill)}원 + 임대료 {formatMoney(stats.monthlyInstallment)}원
+                    전기료 평균 {formatMoney(stats.avgNewTotalBill)}원 + 임대료 {formatMoney(stats.monthlyInstallment)}원
                   </div>
                 </div>
 
